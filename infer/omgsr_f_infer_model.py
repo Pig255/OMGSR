@@ -94,7 +94,9 @@ def create_gaussian_weight(tile_size, sigma=0.3):
     return gaussian_weight
 
 class OMGSR_F_Infer(torch.nn.Module):
-    def __init__(self, flux_path, lora_path, device, weight_dtype=torch.bfloat16, mid_timestep=295, guidance_scale=1.0):
+    def __init__(self, flux_path, lora_path, device, weight_dtype=torch.bfloat16, mid_timestep=295, guidance_scale=1.0,
+                 compile_policy=False, torch_compile_fullgraph=False, torch_compile_dynamic=True,
+                 torch_compile_mode="default", quantize_policy=False):
         super().__init__()
         vae = AutoencoderKL.from_pretrained(
             flux_path,
@@ -129,6 +131,15 @@ class OMGSR_F_Infer(torch.nn.Module):
         flux_transformer.eval()
         self.vae = vae
         self.flux_transformer = flux_transformer
+        if quantize_policy:
+            from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, quantize_
+            quantize_(self.flux_transformer, Float8DynamicActivationFloat8WeightConfig())
+        if compile_policy:
+            from infer.dynamic_shape_patch import apply_torch_compile_dynamic_shape_monkey_patch
+            apply_torch_compile_dynamic_shape_monkey_patch()
+            self.flux_transformer = torch.compile(self.flux_transformer, mode=torch_compile_mode,
+                                                  fullgraph=torch_compile_fullgraph, dynamic=torch_compile_dynamic)
+            # self.vae = torch.compile(self.vae,mode=torch_compile_mode,fullgraph=torch_compile_fullgraph, dynamic=torch_compile_dynamic)
         self.device = device
         self._init_tiled_vae(encoder_tile_size=1024, decoder_tile_size=224)
 
@@ -188,6 +199,8 @@ class OMGSR_F_Infer(torch.nn.Module):
             width=w,
         )
         # One-Step Predict.
+        print(f"model forward 未分片 单次执行.")
+        start_time = time.time()
         model_pred = self.flux_transformer(
             hidden_states=lq_latent,
             timestep=torch.tensor([self.t_curr], device=lq_latent.device),  # One-Step
@@ -198,6 +211,7 @@ class OMGSR_F_Infer(torch.nn.Module):
             img_ids=latent_image_ids,
             return_dict=False,
         )[0]
+        print(f"model forward 未分片 单次执行 done.阶段耗时为:{(time.time() - start_time):.4f} s")
 
         lq_latent = lq_latent + (self.t_prev - self.t_curr) * model_pred  # 注意
 
@@ -210,7 +224,7 @@ class OMGSR_F_Infer(torch.nn.Module):
         lq_latent = (lq_latent / self.vae.config.scaling_factor) + self.vae.config.shift_factor
         start_time = time.time()
         pred_img = self.vae.decode(lq_latent.to(self.vae.dtype), return_dict=False)[0]
-        print(f"未分片 vae decode done.阶段耗时为:{(time.time() - start_time)} ms")
+        print(f"未分片 vae decode done.阶段耗时为:{(time.time() - start_time):.4f} ms")
         return pred_img
 
     def _forward_tile(self, lq_latent, prompt_embeds, pooled_prompt_embeds, text_ids, latent_image_ids, tile_size, tile_overlap):
@@ -290,7 +304,7 @@ class OMGSR_F_Infer(torch.nn.Module):
                     )
                     input_list = []
                 noise_preds.append(model_out)
-        print(f"model forward 多次执行 done.阶段耗时为:{(time.time() - start_time)} s")
+        print(f"model forward 多次执行 done.阶段耗时为:{(time.time() - start_time):.4f} s")
         # Stitch noise predictions for all tiles
         noise_pred = torch.zeros(lq_latent.shape, device=lq_latent.device)
         contributors = torch.zeros(lq_latent.shape, device=lq_latent.device)
@@ -317,11 +331,11 @@ class OMGSR_F_Infer(torch.nn.Module):
         # Average overlapping areas with more than 1 contributor
         noise_pred /= contributors
         model_pred = noise_pred
-        lq_latent = lq_latent + (self.t_prev - self.t_curr) * model_pred  
+        lq_latent = lq_latent + (self.t_prev - self.t_curr) * model_pred
         lq_latent = (lq_latent / self.vae.config.scaling_factor) + self.vae.config.shift_factor
         start_time = time.time()
         pred_img = self.vae.decode(lq_latent.to(self.vae.dtype), return_dict=False)[0]
-        print(f"分片 vae decode done.阶段耗时为:{(time.time() - start_time)} s")
+        print(f"分片 vae decode done.阶段耗时为:{(time.time() - start_time):.4f} s")
         return pred_img
 
     def forward(self, lq_img, prompt_embeds, pooled_prompt_embeds, text_ids, latent_image_ids, tile_size, tile_overlap):
@@ -338,6 +352,5 @@ class OMGSR_F_Infer(torch.nn.Module):
             pred_img = self._forward_tile(lq_latent, prompt_embeds, pooled_prompt_embeds, text_ids, latent_image_ids, tile_size, tile_overlap)
         torch.cuda.synchronize()
         t = time.time() - start_time
-        print(f"Inference time per image: {t}s")
         return pred_img, t
     
