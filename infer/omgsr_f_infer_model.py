@@ -224,11 +224,7 @@ class OMGSR_F_Infer(torch.nn.Module):
         lq_latent = (lq_latent / self.vae.config.scaling_factor) + self.vae.config.shift_factor
         start_time = time.time()
         pred_img = self.vae.decode(lq_latent.to(self.vae.dtype), return_dict=False)[0]
-<<<<<<< HEAD
-        print(f"未分片 vae decode done.阶段耗时为:{(time.time() - start_time)} ms")
-=======
         print(f"未分片 vae decode done.阶段耗时为:{(time.time() - start_time):.4f} ms")
->>>>>>> ef0cd4c826ed89e55af12f8cd667a3bf647fb770
         return pred_img
 
     def _forward_tile(self, lq_latent, prompt_embeds, pooled_prompt_embeds, text_ids, latent_image_ids, tile_size, tile_overlap):
@@ -308,11 +304,7 @@ class OMGSR_F_Infer(torch.nn.Module):
                     )
                     input_list = []
                 noise_preds.append(model_out)
-<<<<<<< HEAD
-        print(f"model forward 多次执行 done.阶段耗时为:{(time.time() - start_time)} s")
-=======
         print(f"model forward 多次执行 done.阶段耗时为:{(time.time() - start_time):.4f} s")
->>>>>>> ef0cd4c826ed89e55af12f8cd667a3bf647fb770
         # Stitch noise predictions for all tiles
         noise_pred = torch.zeros(lq_latent.shape, device=lq_latent.device)
         contributors = torch.zeros(lq_latent.shape, device=lq_latent.device)
@@ -343,11 +335,7 @@ class OMGSR_F_Infer(torch.nn.Module):
         lq_latent = (lq_latent / self.vae.config.scaling_factor) + self.vae.config.shift_factor
         start_time = time.time()
         pred_img = self.vae.decode(lq_latent.to(self.vae.dtype), return_dict=False)[0]
-<<<<<<< HEAD
-        print(f"分片 vae decode done.阶段耗时为:{(time.time() - start_time)} s")
-=======
         print(f"分片 vae decode done.阶段耗时为:{(time.time() - start_time):.4f} s")
->>>>>>> ef0cd4c826ed89e55af12f8cd667a3bf647fb770
         return pred_img
 
     def forward(self, lq_img, prompt_embeds, pooled_prompt_embeds, text_ids, latent_image_ids, tile_size, tile_overlap):
