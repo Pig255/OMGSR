@@ -89,7 +89,7 @@ def main(args):
         bname = os.path.basename(image_name).split('.')[0] + ".png"
         
         tile_size = args.process_size // 8
-        tile_overlap = tile_size // 4
+        tile_overlap = tile_size // 2
         
         # Process the image
         with torch.no_grad():
